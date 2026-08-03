@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>사진 배분 도구</title>
-<meta name="description" content="폴더 안의 사진을 글 개수만큼 나눠 담는 도구. 사진은 브라우저 안에서만 처리됩니다.">
+<title>기자단 원고 제작 툴</title>
+<meta name="description" content="폴더 안의 사진을 글 개수만큼 나누고, PC 브릿지로 원고를 받는 도구. 사진은 브라우저 안에서만 처리됩니다.">
 <meta name="robots" content="noindex">
 <style>
   :root{
@@ -50,14 +50,47 @@
   .hidden{display:none}
   footer{margin-top:44px;border-top:1px solid var(--line);padding-top:16px;
     color:var(--muted);font-size:.84rem}
+
+  .tabs{display:flex;gap:0;margin-top:22px;border-bottom:1px solid var(--line)}
+  .tabs button{border:1px solid var(--line);border-bottom:none;background:transparent;
+    padding:12px 20px;min-height:auto;margin-bottom:-1px}
+  .tabs button[aria-selected=true]{background:var(--card);border-bottom:1px solid var(--card);font-weight:700}
+  .tabs button:hover{background:var(--card);color:inherit}
+  .pane[hidden]{display:none}
+  input[type=text],input[type=password],textarea{font:inherit;padding:10px;border:1px solid var(--line);
+    background:var(--card);color:inherit;min-height:44px;width:100%}
+  textarea{min-height:150px;resize:vertical;line-height:1.6}
+  fieldset{border:1px solid var(--line);background:var(--card);padding:14px 16px;margin:0 0 16px}
+  legend{padding:0 6px;font-size:.9rem;color:var(--muted)}
+  .f{display:block;margin-bottom:12px}
+  .f > span{display:block;font-size:.9rem;margin-bottom:6px}
+  .f-row{display:flex;flex-wrap:wrap;gap:14px}
+  .f-row .f{flex:1 1 180px;margin-bottom:0}
+  button.mini{padding:7px 12px;min-height:36px;font-size:.86rem}
+  .art{border:1px solid var(--line);background:var(--card);padding:16px;margin-top:16px}
+  .art h3{margin:0 0 4px;font-size:1rem}
+  .art .meta{color:var(--muted);font-size:.84rem;margin:0 0 12px}
+  .art pre{white-space:pre-wrap;font:inherit;margin:12px 0 0;max-height:320px;overflow:auto;
+    border-top:1px solid var(--line);padding-top:12px}
+  #log2{margin-top:16px;background:var(--card);border:1px solid var(--line);
+    padding:14px 16px;max-height:38vh;overflow:auto;white-space:pre-wrap;font-size:.9rem}
+  #log2:empty{display:none}
   @media (max-width:640px){ .row{gap:10px} }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>사진 배분 도구</h1>
-  <p class="lead">폴더 안의 사진을 글 개수만큼 나눠 담습니다. 글끼리 같은 사진이 겹치지 않습니다.</p>
+  <h1>기자단 원고 제작 툴</h1>
+  <p class="lead">사진을 글 개수만큼 나누고, 업체 가이드로 원고를 만듭니다.</p>
   <p class="privacy">사진은 서버로 전송되지 않습니다. 전부 이 브라우저 안에서만 처리됩니다.</p>
+
+
+  <div class="tabs" role="tablist">
+    <button id="tab-photo" role="tab" aria-selected="true" aria-controls="pane-photo">사진 배분</button>
+    <button id="tab-text" role="tab" aria-selected="false" aria-controls="pane-text">원고 생성</button>
+  </div>
+
+  <div id="pane-photo" class="pane" role="tabpanel">
 
   <div id="unsupported" class="note hidden">
     <strong>이 브라우저에서는 폴더를 열 수 없습니다.</strong><br>
@@ -98,8 +131,58 @@
     <div id="log" role="log" aria-live="polite"></div>
   </section>
 
+  </div><!-- /pane-photo -->
+
+  <div id="pane-text" class="pane" role="tabpanel" hidden>
+    <section style="border-top:none;padding-top:22px">
+      <h2><span class="no">1</span>깃허브 토큰 (최초 1회)</h2>
+      <label class="f"><span>GitHub 토큰</span>
+        <input id="ghtoken" type="password" placeholder="github_pat_... 또는 ghp_..." autocomplete="off"></label>
+      <div class="row">
+        <button id="saveTok" class="mini">이 브라우저에 저장</button>
+        <button id="clearTok" class="mini">저장한 토큰 지우기</button>
+        <span class="hint" id="tokState"></span>
+      </div>
+      <p class="hint">토큰은 이 브라우저에만 저장되고 저희 서버로는 전송되지 않습니다. 본인 계정의 토큰을 쓰세요.
+        <b>kijadan-bridge</b> 저장소에 읽기·쓰기 권한이 필요합니다.<br>
+        발급: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>
+        → Repository access 에서 <b>kijadan-bridge</b> 선택 → Permissions 의 <b>Contents</b> 를 <b>Read and write</b> 로.</p>
+    </section>
+
+    <section>
+      <h2><span class="no">2</span>원고 요청</h2>
+      <fieldset>
+        <legend>업체 정보</legend>
+        <div class="f-row">
+          <label class="f"><span>업체명</span><input id="company" type="text" placeholder="예: 우리상회"></label>
+          <label class="f"><span>발행 글 수</span><input id="tn" type="number" min="1" max="20" value="4"></label>
+          <label class="f"><span>공백 제외 최소 글자수</span><input id="minChars" type="number" min="300" max="6000" step="100" value="1500"></label>
+        </div>
+        <label class="f" style="margin-top:12px"><span>글별 사진 장수 (쉼표로 구분, 사진 없으면 0)</span>
+          <input id="photos" type="text" placeholder="예: 11,12,13,11"></label>
+        <p class="hint" id="photoHint">사진 배분을 먼저 실행하면 자동으로 채워집니다.</p>
+        <label class="f" style="margin-top:12px"><span>업체 가이드 (여기 있는 사실만 원고에 들어갑니다)</span>
+          <textarea id="guide" placeholder="업체가 준 가이드를 그대로 붙여넣으세요. 필수 문구, 강조할 점, 위치, 영업시간 등"></textarea></label>
+        <div class="f-row">
+          <label class="f"><span>필수 키워드 (선택)</span><input id="keywords" type="text" placeholder="예: 지역명 키워드, 강조할 특징"></label>
+          <label class="f"><span>추가 요청사항 (선택)</span><input id="notes" type="text" placeholder="예: 주차 얘기 꼭 넣어주세요"></label>
+        </div>
+      </fieldset>
+
+      <button id="req" class="primary">원고 요청</button>
+      <p class="hint">요청을 올리면 <b>PC 브릿지가 켜져 있어야</b> 원고가 만들어집니다.
+        (<b>기자단알바\기자단브릿지 켜기.bat</b> 더블클릭 후 창을 켜 두세요.)
+        글 수에 따라 몇 분 걸릴 수 있고, 이 화면을 켜 둔 채 기다리면 자동으로 받아옵니다.</p>
+      <div id="log2" role="log" aria-live="polite"></div>
+      <div id="out"></div>
+      <div class="row" style="margin-top:16px">
+        <button id="saveText" disabled>발행 폴더에 저장</button>
+      </div>
+    </section>
+  </div><!-- /pane-text -->
+
   <footer>
-    원고는 이 도구가 만들지 않습니다. 사진만 나눕니다.<br>
+    사진은 이 컴퓨터에만 있습니다. 원고는 대표님 PC의 클로드가 만듭니다.<br>
     브라우저를 닫아도 사진은 이 컴퓨터에만 있습니다.
   </footer>
 </div>
@@ -175,6 +258,72 @@ function pad2(n) { return (n < 10 ? '0' : '') + n; }
 function countsText(counts) {
   if (counts.length <= 8) return counts.join('·');
   return counts.slice(0, 6).join('·') + '… (총 ' + counts.length + '편)';
+}
+
+// ── 원고 브릿지용 순수 함수 (GitHub 호출은 이 바깥에서) ──
+var BRIDGE_REPO = 'bnnnn2/kijadan-bridge';
+
+function pad2n(v) { return (v < 10 ? '0' : '') + v; }
+
+function reqId(d) {          // req_20260803_161230
+  return 'req_' + d.getFullYear() + pad2n(d.getMonth() + 1) + pad2n(d.getDate()) + '_'
+       + pad2n(d.getHours()) + pad2n(d.getMinutes()) + pad2n(d.getSeconds());
+}
+
+function parsePhotos(raw, n) {   // "11, 12,13" → [11,12,13,0…] 길이 n
+  var out = String(raw == null ? '' : raw).split(/[,\s]+/)
+    .filter(function (s) { return s !== ''; })
+    .map(function (s) { var v = parseInt(s, 10); return isFinite(v) && v > 0 ? v : 0; });
+  while (out.length < n) out.push(out.length ? out[out.length - 1] : 0);
+  return out.slice(0, n);
+}
+
+function buildRequest(form, now) {
+  var n = Math.max(1, parseInt(form.n, 10) || 1);
+  var id = reqId(now || new Date());
+  var body = {
+    id: id,
+    created_at: (now || new Date()).toISOString(),
+    company: (form.company || '').trim(),
+    guide: (form.guide || '').trim(),
+    n: n,
+    min_chars: Math.max(100, parseInt(form.minChars, 10) || 1000),
+    photos: parsePhotos(form.photos, n),
+    keywords: (form.keywords || '').trim(),
+    notes: (form.notes || '').trim()
+  };
+  return { id: id, path: 'queue/' + id + '.json', json: JSON.stringify(body, null, 1) };
+}
+
+function countChars(s) { return String(s == null ? '' : s).replace(/\s/g, '').length; }
+
+function parseResult(obj) {      // 결과 JSON → 화면에 쓸 모양으로 정규화
+  var o = obj || {};
+  if (o.error) return { error: String(o.error), articles: [], warnings: [] };
+  var arts = (o.articles || []).map(function (a) {
+    var body = String(a.body == null ? '' : a.body);
+    return {
+      title: String(a.title == null ? '' : a.title),
+      body: body,
+      chars: (typeof a.chars === 'number') ? a.chars : countChars(body),
+      markers: (typeof a.markers === 'number') ? a.markers
+             : (body.match(/\[사진\s*\d+\]/g) || []).length
+    };
+  });
+  return { error: '', articles: arts, warnings: o.warnings || [] };
+}
+
+function b64encodeUtf8(str) {
+  var bytes = new TextEncoder().encode(str), bin = '';
+  for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function b64decodeUtf8(b64) {
+  var bin = atob(String(b64).replace(/\s/g, ''));
+  var bytes = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
 }
 /* ================= CORE END ================= */
 
@@ -418,7 +567,11 @@ function countsText(counts) {
       log('');
       log('완료 — 사진 ' + moved + '장을 발행 폴더 ' + labels[0] + '~'
           + labels[labels.length - 1] + '에 나눴습니다.');
-      log('원고는 클로드에게 요청하세요. 이 도구는 사진만 나눕니다.');
+      $('photos').value = sets.map(function (s) { return s.before.length + s.after.length; }).join(',');
+      $('tn').value = n;
+      if (!$('company').value.trim()) $('company').value = company.name;
+      $('photoHint').textContent = '배분 결과가 반영됐습니다: ' + $('photos').value;
+      log('이어서 위쪽 [원고 생성] 탭에서 원고를 요청하세요.');
     } catch (err) {
       log('');
       log('오류: ' + err.message);
@@ -427,6 +580,191 @@ function countsText(counts) {
 
     await scan();
     busy = false; $('pick').disabled = false; syncMode();
+  });
+
+
+  // ─────────── 탭 ───────────
+  function showTab(which) {
+    var photo = which === 'photo';
+    $('tab-photo').setAttribute('aria-selected', photo ? 'true' : 'false');
+    $('tab-text').setAttribute('aria-selected', photo ? 'false' : 'true');
+    $('pane-photo').hidden = !photo;
+    $('pane-text').hidden = photo;
+  }
+  $('tab-photo').addEventListener('click', function () { showTab('photo'); });
+  $('tab-text').addEventListener('click', function () { showTab('text'); });
+
+  // ─────────── 토큰 ───────────
+  var TOK = 'kijadan_gh_token';
+  try {
+    var savedTok = localStorage.getItem(TOK);
+    if (savedTok) { $('ghtoken').value = savedTok; $('tokState').textContent = '저장된 토큰을 불러왔습니다.'; }
+  } catch (err) {}
+  $('saveTok').addEventListener('click', function () {
+    try {
+      localStorage.setItem(TOK, $('ghtoken').value.trim());
+      $('tokState').textContent = '이 브라우저에 저장했습니다.';
+    } catch (err) { $('tokState').textContent = '저장할 수 없는 브라우저 설정입니다.'; }
+  });
+  $('clearTok').addEventListener('click', function () {
+    try { localStorage.removeItem(TOK); } catch (err) {}
+    $('ghtoken').value = '';
+    $('tokState').textContent = '저장한 토큰을 지웠습니다.';
+  });
+
+  // ─────────── 원고 요청/폴링 ───────────
+  var articles = [], polling = null;
+  function log2(s) { $('log2').textContent += s + '\n'; $('log2').scrollTop = $('log2').scrollHeight; }
+  function clearLog2() { $('log2').textContent = ''; }
+
+  function ghHeaders(token) {
+    return {
+      'Authorization': 'Bearer ' + token,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json'
+    };
+  }
+
+  async function ghPut(token, path, json, message) {
+    var res = await fetch('https://api.github.com/repos/' + BRIDGE_REPO + '/contents/' + path, {
+      method: 'PUT',
+      headers: ghHeaders(token),
+      body: JSON.stringify({ message: message, content: b64encodeUtf8(json) })
+    });
+    if (!res.ok) {
+      var e = await res.json().catch(function () { return {}; });
+      var msg = e.message || ('HTTP ' + res.status);
+      if (res.status === 401) msg = '토큰이 올바르지 않습니다.';
+      if (res.status === 403 || res.status === 404) msg = '토큰에 kijadan-bridge 저장소 권한이 없습니다.';
+      throw new Error(msg);
+    }
+    return true;
+  }
+
+  async function ghGetJson(token, path) {   // 없으면 null
+    var res = await fetch('https://api.github.com/repos/' + BRIDGE_REPO + '/contents/' + path
+                          + '?t=' + Date.now(), { headers: ghHeaders(token), cache: 'no-store' });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('결과 확인 실패 (HTTP ' + res.status + ')');
+    var meta = await res.json();
+    return JSON.parse(b64decodeUtf8(meta.content || ''));
+  }
+
+  function copyBtn(label, get) {
+    var b = document.createElement('button');
+    b.className = 'mini';
+    b.textContent = label;
+    b.addEventListener('click', async function () {
+      try {
+        await navigator.clipboard.writeText(get());
+        b.textContent = '복사됨';
+        setTimeout(function () { b.textContent = label; }, 1500);
+      } catch (err) { b.textContent = '복사 실패'; }
+    });
+    return b;
+  }
+
+  function renderArticles() {
+    var out = $('out');
+    out.innerHTML = '';
+    articles.forEach(function (a, i) {
+      var box = document.createElement('div');
+      box.className = 'art';
+      var h = document.createElement('h3');
+      h.textContent = (i + 1) + '편 · ' + (a.title || '(제목 없음)');
+      box.appendChild(h);
+      var meta = document.createElement('p');
+      meta.className = 'meta';
+      meta.textContent = '공백 제외 ' + a.chars + '자 · 사진 마커 ' + a.markers + '개';
+      box.appendChild(meta);
+      var row = document.createElement('div');
+      row.className = 'row';
+      row.appendChild(copyBtn('제목 복사', function () { return a.title; }));
+      row.appendChild(copyBtn('본문 복사', function () { return a.body; }));
+      box.appendChild(row);
+      var pre = document.createElement('pre');
+      pre.textContent = a.body;
+      box.appendChild(pre);
+      out.appendChild(box);
+    });
+    $('saveText').disabled = !(company && articles.length);
+  }
+
+  $('req').addEventListener('click', async function () {
+    var token = $('ghtoken').value.trim();
+    if (!token) { clearLog2(); log2('깃허브 토큰을 넣어 주세요.'); return; }
+    if (!$('guide').value.trim()) { clearLog2(); log2('업체 가이드를 넣어 주세요.'); return; }
+    if (polling) { clearInterval(polling); polling = null; }
+
+    var r = buildRequest({
+      company: $('company').value, guide: $('guide').value, n: $('tn').value,
+      minChars: $('minChars').value, photos: $('photos').value,
+      keywords: $('keywords').value, notes: $('notes').value
+    }, new Date());
+
+    clearLog2();
+    $('out').innerHTML = '';
+    articles = [];
+    $('req').disabled = true;
+    $('saveText').disabled = true;
+    try {
+      await ghPut(token, r.path, r.json, '원고 요청 ' + r.id);
+      log2('요청을 올렸습니다: ' + r.id);
+      log2('PC 브릿지가 켜져 있어야 원고가 만들어집니다. 15초마다 결과를 확인합니다…');
+    } catch (err) {
+      log2('요청 실패: ' + err.message);
+      $('req').disabled = false;
+      return;
+    }
+
+    var tries = 0;
+    polling = setInterval(async function () {
+      tries++;
+      try {
+        var got = await ghGetJson(token, 'results/' + r.id + '.json');
+        if (!got) {
+          if (tries % 4 === 0) log2('아직 기다리는 중… (' + (tries * 15) + '초)');
+          if (tries === 8) log2('브릿지 창이 켜져 있는지 확인해 주세요.');
+          if (tries > 80) { clearInterval(polling); polling = null; log2('20분이 지나 확인을 멈춥니다.'); $('req').disabled = false; }
+          return;
+        }
+        clearInterval(polling); polling = null;
+        var res = parseResult(got);
+        if (res.error) { log2('브릿지 오류: ' + res.error); $('req').disabled = false; return; }
+        articles = res.articles;
+        renderArticles();
+        log2('');
+        log2('원고 ' + articles.length + '편 도착.');
+        res.warnings.forEach(function (w) { log2('  ⚠ ' + w); });
+        log2('발행 시 대가성 표시(광고·협찬 문구)를 꼭 넣어 주세요.');
+        $('req').disabled = false;
+      } catch (err) {
+        log2('확인 중 오류: ' + err.message);
+      }
+    }, 15000);
+  });
+
+  $('saveText').addEventListener('click', async function () {
+    if (!company || !articles.length) return;
+    try {
+      var out = await company.getDirectoryHandle('발행', { create: true });
+      var dirs = [];
+      for await (var e of out.entries()) if (e[1].kind === 'directory' && /^\d+$/.test(e[0])) dirs.push(e[0]);
+      dirs.sort(function (a, b) { return Number(a) - Number(b); });
+      if (dirs.length < articles.length) {
+        log2('발행 폴더(' + dirs.length + '개)가 원고 수(' + articles.length + '편)보다 적습니다. 사진 배분을 먼저 하세요.');
+        return;
+      }
+      for (var i = 0; i < articles.length; i++) {
+        var sub = await out.getDirectoryHandle(dirs[i], { create: true });
+        var fh = await sub.getFileHandle('원고.txt', { create: true });
+        var w = await fh.createWritable();
+        await w.write('\ufeff' + articles[i].title + '\n\n' + articles[i].body + '\n');
+        await w.close();
+      }
+      log2('저장 완료 — 발행/' + dirs[0] + '~' + dirs[articles.length - 1] + '/원고.txt');
+    } catch (err) { log2('저장 오류: ' + err.message); }
   });
 
   syncMode();
