@@ -207,6 +207,7 @@
    순수 로직(파일 접근 없음). 데스크톱판(파이썬)과 동일한 규칙.
    node 단위테스트가 이 블록을 그대로 뽑아 실행하므로 아래 함수들은 브라우저 API를 쓰지 않는다. */
 var IMG_EXT = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic'];
+var ROOT_LABEL = '(업체 폴더 바로 아래)';   // 하위 폴더 없이 루트에 사진이 있는 경우
 
 function cmp(a, b) {            // 파이썬 sorted() 와 같은 코드포인트 순서 (localeCompare 금지)
   return a < b ? -1 : a > b ? 1 : 0;
@@ -575,12 +576,24 @@ function b64decodeUtf8(b64) {
     var prev = {};
     folders.forEach(function (f) { prev[f.name] = f.role; });
     folders = [];
+    var rootNames = [];
     for await (var e of company.entries()) {
       if (e[1].kind === 'directory' && e[0] !== '발행') {
         folders.push({ name: e[0], handle: e[1], files: [], role: prev[e[0]] || 'skip' });
+      } else if (e[1].kind === 'file' && isImage(e[0])) {
+        rootNames.push({ name: e[0], handle: e[1] });   // 업체 폴더 루트 직속 사진
       }
     }
     folders.sort(function (x, y) { return cmp(x.name, y.name); });
+    if (rootNames.length) {
+      var rootPool = { name: ROOT_LABEL, handle: company, files: [],
+                       role: prev[ROOT_LABEL] || 'skip', root: true };
+      rootNames.sort(function (x, y) { return cmp(x.name, y.name); });
+      rootPool.files = rootNames.map(function (f) {
+        return { name: f.name, handle: f.handle, dir: rootPool };
+      });
+      folders.unshift(rootPool);                        // 목록 맨 위에
+    }
     for (var i = 0; i < folders.length; i++) {
       var files = [];
       for await (var f of folders[i].handle.entries()) {
