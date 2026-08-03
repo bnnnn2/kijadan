@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사진 배분 도구</title>
+<meta name="description" content="폴더 안의 사진을 글 개수만큼 겹치지 않게 나눠 담는 도구. 사진은 브라우저 안에서만 처리됩니다.">
+<meta name="robots" content="noindex">
+<style>
+  :root{
+    --paper:#f4f3f0; --ink:#1a1a18; --muted:#6b6a66; --line:#d9d7d1;
+    --card:#fbfaf8; --accent:#1f6f4a; --warn:#8a4b1f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:'Malgun Gothic','맑은 고딕',system-ui,sans-serif;
+    line-height:1.65;word-break:keep-all;-webkit-text-size-adjust:100%}
+  .wrap{max-width:760px;margin:0 auto;padding:clamp(24px,5vw,56px) clamp(16px,4vw,28px) 80px}
+  h1{font-size:clamp(1.5rem,4vw,2rem);margin:0 0 6px;letter-spacing:-.02em}
+  .lead{color:var(--muted);margin:0 0 6px}
+  .privacy{display:inline-block;margin:10px 0 0;padding:6px 10px;border:1px solid var(--line);
+    background:var(--card);font-size:.86rem;color:var(--accent)}
+  section{margin-top:34px;border-top:1px solid var(--line);padding-top:22px}
+  h2{font-size:1rem;margin:0 0 12px;letter-spacing:-.01em}
+  h2 .no{color:var(--muted);font-weight:400;margin-right:8px}
+  button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--ink);
+    padding:14px 22px;cursor:pointer;min-height:48px}
+  button:hover:not(:disabled){background:var(--ink);color:var(--paper)}
+  button:disabled{opacity:.4;cursor:default;border-color:var(--line)}
+  button.primary{background:var(--ink);color:var(--paper);font-weight:700;font-size:1.05rem;padding:16px 28px}
+  button.primary:hover:not(:disabled){opacity:.86}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  label{display:inline-flex;align-items:center;gap:8px}
+  input[type=number]{font:inherit;width:84px;padding:11px 10px;border:1px solid var(--line);
+    background:var(--card);color:inherit;min-height:44px}
+  .hint{color:var(--muted);font-size:.88rem;margin:10px 0 0}
+  .folders{margin:14px 0 0;padding:0;list-style:none;border-top:1px solid var(--line)}
+  .folders li{display:flex;justify-content:space-between;gap:12px;
+    padding:9px 2px;border-bottom:1px solid var(--line);font-size:.94rem}
+  .folders .n{color:var(--muted);font-variant-numeric:tabular-nums}
+  #log{margin-top:16px;background:var(--card);border:1px solid var(--line);
+    padding:14px 16px;min-height:120px;max-height:44vh;overflow:auto;
+    white-space:pre-wrap;font-size:.9rem}
+  #log:empty{display:none}
+  .note{border:1px solid var(--warn);color:var(--warn);background:#fdf7f2;padding:14px 16px;margin-top:18px}
+  .hidden{display:none}
+  footer{margin-top:44px;border-top:1px solid var(--line);padding-top:16px;
+    color:var(--muted);font-size:.84rem}
+  @media (max-width:640px){ .row{gap:10px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>사진 배분 도구</h1>
+  <p class="lead">폴더 안의 사진을 글 개수만큼 나눠 담습니다. 글끼리 같은 사진이 겹치지 않습니다.</p>
+  <p class="privacy">사진은 서버로 전송되지 않습니다. 전부 이 브라우저 안에서만 처리됩니다.</p>
+
+  <div id="unsupported" class="note hidden">
+    <strong>이 브라우저에서는 폴더를 열 수 없습니다.</strong><br>
+    PC의 크롬 또는 엣지에서 열어 주세요. 파이어폭스·사파리·휴대폰 브라우저는 폴더 접근 기능을 지원하지 않습니다.
+  </div>
+
+  <section>
+    <h2><span class="no">1</span>업체 폴더 선택</h2>
+    <button id="pick">업체 폴더 선택</button>
+    <p class="hint" id="picked">사진 폴더들이 들어 있는 업체 폴더를 고르세요. (예: 사진 폴더 4개가 들어 있는 상위 폴더)</p>
+    <ul class="folders" id="folders"></ul>
+  </section>
+
+  <section>
+    <h2><span class="no">2</span>글 수와 사진 장수</h2>
+    <div class="row">
+      <label>발행 글 수 <input id="n" type="number" min="1" max="99" value="5"></label>
+      <label>글당 최소 <input id="m" type="number" min="1" max="99" value="10"></label>
+    </div>
+    <p class="hint">글당 사진 최소 장수(실제로는 +1~3장 변주). 글마다 장수가 똑같으면 티가 나기 때문입니다.</p>
+    <p class="hint" id="need"></p>
+  </section>
+
+  <section>
+    <h2><span class="no">3</span>실행</h2>
+    <button id="run" class="primary" disabled>사진 배분 실행</button>
+    <p class="hint">쓴 사진은 <b>발행</b> 폴더로 옮겨지고 원본 폴더에서는 사라집니다. 되돌릴 때는 <b>발행/_배분기록.txt</b>를 보세요.</p>
+    <div id="log" role="log" aria-live="polite"></div>
+  </section>
+
+  <footer>
+    원고는 이 도구가 만들지 않습니다. 사진만 나눕니다.<br>
+    브라우저를 닫아도 사진은 이 컴퓨터에만 있습니다.
+  </footer>
+</div>
+
+<script>
+/* ================= CORE START =================
+   순수 로직(파일 접근 없음). 파이썬 기자단패키지GUI.pyw 와 동일한 규칙.
+   node 단위테스트가 이 블록을 그대로 뽑아 실행하므로 아래 함수들은 브라우저 API를 쓰지 않는다. */
+var IMG_EXT = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic'];
+
+function cmp(a, b) {            // 파이썬 sorted() 와 같은 코드포인트 순서 (localeCompare 금지)
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function isImage(name) {
+  var i = name.lastIndexOf('.');
+  return i > 0 && IMG_EXT.indexOf(name.slice(i).toLowerCase()) !== -1;
+}
+
+function extOf(name) {
+  var i = name.lastIndexOf('.');
+  return i > 0 ? name.slice(i) : '';
+}
+
+function sizesFor(n, m) {       // 글마다 M+1, M+2, M+3 순환
+  var out = [];
+  for (var i = 0; i < n; i++) out.push(m + (i % 3) + 1);
+  return out;
+}
+
+function planPick(pools, sizes) {   // 부족하면 throw — 호출자는 아무것도 건드리지 않는다
+  var total = 0, i, k;
+  for (i = 0; i < pools.length; i++) total += pools[i].length;
+  var need = sizes.reduce(function (a, b) { return a + b; }, 0);
+  if (!pools.length) throw new Error('사진 폴더가 없습니다');
+  if (need > total) throw new Error('사진이 ' + (need - total) + '장 부족합니다 (필요 ' + need + '장 / 남은 사진 ' + total + '장)');
+  var work = pools.map(function (p) { return p.slice(); });
+  var sets = [];
+  for (k = 0; k < sizes.length; k++) {
+    var picked = [], j = 0;
+    while (picked.length < sizes[k]) {
+      var pool = work[j % work.length];
+      if (pool.length) picked.push(pool.pop());   // 뒤에서부터
+      j++;
+    }
+    sets.push(picked);
+  }
+  return sets;
+}
+
+function nextIndex(names) {     // 기존 발행 폴더 다음 번호
+  var nums = names.filter(function (s) { return /^\d+$/.test(s); }).map(Number);
+  return nums.length ? Math.max.apply(null, nums) + 1 : 1;
+}
+
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+function countsText(counts) {
+  if (counts.length <= 8) return counts.join('·');
+  return counts.slice(0, 6).join('·') + '… (총 ' + counts.length + '편)';
+}
+/* ================= CORE END ================= */
+
+/* 스모크 테스트 절차(수동 — File System Access 는 자동화 불가):
+   1) 테스트용 업체 폴더를 만든다: 하위 폴더 3~4개, 각 폴더에 이름이 다른 이미지 몇 장.
+   2) [업체 폴더 선택] → 폴더 목록과 장수가 실제와 맞는지 확인. '발행' 폴더는 목록에 없어야 한다.
+   3) 글 2편·최소 1장으로 실행 → 발행/01(2장)·02(3장) 생성, 각 폴더 파일명 1.jpeg·2.jpeg…
+   4) 원본 폴더에서 그 사진들이 사라졌는지, 총 파일 수가 그대로인지 확인.
+   5) 한 번 더 실행 → 03 부터 이어붙고 01·02 는 그대로여야 한다.
+   6) 글 999편으로 실행 → "부족합니다"만 뜨고 파일이 하나도 안 바뀌어야 한다.
+   7) 발행/_배분기록.txt 에 실행 2건이 이어 적혔는지 확인. */
+
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var supported = typeof window.showDirectoryPicker === 'function';
+  var company = null, folders = [], busy = false;
+
+  if (!supported) {
+    $('unsupported').classList.remove('hidden');
+    $('pick').disabled = true;
+  }
+
+  function log(s) {
+    $('log').textContent += s + '\n';
+    $('log').scrollTop = $('log').scrollHeight;
+  }
+  function clearLog() { $('log').textContent = ''; }
+
+  function total() {
+    return folders.reduce(function (a, f) { return a + f.files.length; }, 0);
+  }
+
+  function showNeed() {
+    var n = parseInt($('n').value, 10), m = parseInt($('m').value, 10);
+    if (!(n > 0 && m > 0)) { $('need').textContent = ''; return; }
+    var c = sizesFor(n, m);
+    var sum = c.reduce(function (a, b) { return a + b; }, 0);
+    var txt = '실제 배분: ' + countsText(c) + '장 — 모두 ' + sum + '장 필요';
+    if (company) txt += ' / 지금 남은 사진 ' + total() + '장';
+    $('need').textContent = txt;
+  }
+
+  function renderFolders() {
+    var ul = $('folders');
+    ul.innerHTML = '';
+    folders.forEach(function (f) {
+      var li = document.createElement('li');
+      var a = document.createElement('span');
+      a.textContent = f.name;
+      var b = document.createElement('span');
+      b.className = 'n';
+      b.textContent = f.files.length + '장';
+      li.appendChild(a); li.appendChild(b);
+      ul.appendChild(li);
+    });
+    showNeed();
+  }
+
+  async function scan() {
+    folders = [];
+    for await (var e of company.entries()) {
+      if (e[1].kind === 'directory' && e[0] !== '발행') folders.push({ name: e[0], handle: e[1], files: [] });
+    }
+    folders.sort(function (x, y) { return cmp(x.name, y.name); });
+    for (var i = 0; i < folders.length; i++) {
+      var files = [];
+      for await (var f of folders[i].handle.entries()) {
+        if (f[1].kind === 'file' && isImage(f[0])) files.push({ name: f[0], handle: f[1], dir: folders[i] });
+      }
+      files.sort(function (x, y) { return cmp(x.name, y.name); });
+      folders[i].files = files;
+    }
+    renderFolders();
+  }
+
+  $('pick').addEventListener('click', async function () {
+    try {
+      company = await window.showDirectoryPicker({ mode: 'readwrite' });
+    } catch (err) { return; }               // 사용자가 취소
+    clearLog();
+    $('picked').textContent = '선택한 폴더: ' + company.name;
+    await scan();
+    $('run').disabled = folders.length === 0;
+    if (!folders.length) log('사진 폴더를 찾지 못했습니다. 사진이 들어 있는 하위 폴더가 있는 업체 폴더를 고르세요.');
+  });
+
+  $('n').addEventListener('input', showNeed);
+  $('m').addEventListener('input', showNeed);
+
+  $('run').addEventListener('click', async function () {
+    if (busy) return;
+    var n = parseInt($('n').value, 10), m = parseInt($('m').value, 10);
+    if (!(n > 0 && m > 0)) { clearLog(); log('글 수와 글당 최소 장수를 1 이상으로 넣으세요.'); return; }
+
+    busy = true; $('run').disabled = true; $('pick').disabled = true;
+    clearLog();
+    var counts = sizesFor(n, m);
+    var sum = counts.reduce(function (a, b) { return a + b; }, 0);
+    log(company.name + ' — 글 ' + n + '편, 최소 ' + m + '장 → 실제 ' + countsText(counts) + '장 (총 ' + sum + '장)');
+    log('');
+    folders.forEach(function (f) { log('  ' + f.name + ' — ' + f.files.length + '장'); });
+
+    var sets;
+    try {
+      sets = planPick(folders.map(function (f) { return f.files; }), counts);
+    } catch (err) {
+      log('');
+      log('중단: ' + err.message);
+      log('사진을 하나도 옮기지 않았습니다. 글 수나 장수를 줄여 다시 실행하세요.');
+      busy = false; $('run').disabled = false; $('pick').disabled = false;
+      return;
+    }
+
+    try {
+      var out = await company.getDirectoryHandle('발행', { create: true });
+      var names = [];
+      for await (var e of out.entries()) if (e[1].kind === 'directory') names.push(e[0]);
+      var start = nextIndex(names);
+      var records = [], moved = 0;
+
+      for (var k = 0; k < sets.length; k++) {
+        var label = pad2(start + k);
+        var sub = await out.getDirectoryHandle(label, { create: true });
+        for (var j = 0; j < sets[k].length; j++) {
+          var item = sets[k][j];
+          var file = await item.handle.getFile();
+          var dstName = (j + 1) + extOf(item.name);
+          var dst = await sub.getFileHandle(dstName, { create: true });
+          var w = await dst.createWritable();
+          await w.write(file);
+          await w.close();
+          var check = await (await sub.getFileHandle(dstName)).getFile();
+          if (check.size !== file.size || file.size === 0) {
+            throw new Error(item.name + ' 복사 검증 실패 — 원본은 그대로 두었습니다');
+          }
+          await item.dir.handle.removeEntry(item.name);   // 검증 뒤에만 삭제
+          records.push(item.dir.name + '/' + item.name + '\t->\t발행/' + label + '/' + dstName);
+          moved++;
+        }
+        log('  ' + label + ' 폴더 — 사진 ' + sets[k].length + '장');
+      }
+
+      var now = new Date();
+      var pad = function (v) { return (v < 10 ? '0' : '') + v; };
+      var head = '[' + now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) +
+        ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + '] ' + company.name +
+        ' — 글 ' + n + '편, 최소 ' + m + '장 → 실제 ' + counts.join('·') + '장 (합계 ' + sum +
+        '장, 폴더 ' + pad2(start) + '~' + pad2(start + n - 1) + ')';
+      var old = '';
+      try { old = await (await (await out.getFileHandle('_배분기록.txt')).getFile()).text(); } catch (err) { old = '﻿'; }
+      var fh = await out.getFileHandle('_배분기록.txt', { create: true });
+      var fw = await fh.createWritable();
+      await fw.write(old + head + '\n' + records.join('\n') + '\n\n');
+      await fw.close();
+
+      log('');
+      log('완료 — 사진 ' + moved + '장을 발행 폴더 ' + pad2(start) + '~' + pad2(start + n - 1) + '에 나눴습니다.');
+      log('글별 장수: ' + counts.join('·') + '장');
+      log('원고는 클로드에게 요청하세요. 이 도구는 사진만 나눕니다.');
+    } catch (err) {
+      log('');
+      log('오류: ' + err.message);
+      log('여기까지 옮겨진 사진은 발행 폴더에 있습니다. _배분기록.txt 를 확인하세요.');
+    }
+
+    await scan();
+    busy = false; $('run').disabled = folders.length === 0; $('pick').disabled = false;
+  });
+
+  showNeed();
+})();
+</script>
+</body>
+</html>
