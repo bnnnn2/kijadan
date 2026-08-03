@@ -161,11 +161,16 @@
         <div class="f-row">
           <label class="f"><span>업체명</span><input id="company" type="text" placeholder="예: 우리상회"></label>
           <label class="f"><span>발행 글 수</span><input id="tn" type="number" min="1" max="20" value="4"></label>
-          <label class="f"><span>공백 제외 최소 글자수</span><input id="minChars" type="number" min="300" max="6000" step="100" value="1500"></label>
+          <label class="f"><span>공백 제외 최소 글자수 <small style="color:var(--muted)">(가이드에 글자수 규정이 있으면 가이드가 우선합니다)</small></span><input id="minChars" type="number" min="300" max="6000" step="100" value="1000"></label>
         </div>
+        <label class="f" style="margin-top:12px"><span>업체 폴더명 (선택)</span>
+          <input id="folder" type="text" placeholder="예: 미용실"></label>
+        <p class="hint">브릿지 PC의 <b>기자단알바\{폴더}</b> 안 발행 폴더 사진을 열어 보고 원고에 반영합니다.
+          비워 두면 사진 없이 글만 만듭니다. 폴더명을 넣으면 아래 글 수·사진 장수 대신
+          <b>원고.txt 가 없는 발행 폴더</b>와 그 안의 실제 사진 장수를 씁니다.</p>
         <label class="f" style="margin-top:12px"><span>글별 사진 장수 (쉼표로 구분, 사진 없으면 0)</span>
           <input id="photos" type="text" placeholder="예: 11,12,13,11"></label>
-        <p class="hint" id="photoHint">사진 배분을 먼저 실행하면 자동으로 채워집니다.</p>
+        <p class="hint" id="photoHint">사진 배분을 먼저 실행하면 자동으로 채워집니다. (업체 폴더명을 넣으면 무시됩니다)</p>
         <label class="f" style="margin-top:12px"><span>업체 가이드 (여기 있는 사실만 원고에 들어갑니다)</span>
           <textarea id="guide" placeholder="업체가 준 가이드를 그대로 붙여넣으세요. 필수 문구, 강조할 점, 위치, 영업시간 등"></textarea></label>
         <div class="f-row">
@@ -316,6 +321,7 @@ function buildRequest(form, now) {
     id: id,
     created_at: (now || new Date()).toISOString(),
     company: (form.company || '').trim(),
+    folder: (form.folder || '').trim(),
     guide: (form.guide || '').trim(),
     n: n,
     min_chars: Math.max(100, parseInt(form.minChars, 10) || 1000),
@@ -334,6 +340,7 @@ function parseResult(obj) {      // 결과 JSON → 화면에 쓸 모양으로 �
   var arts = (o.articles || []).map(function (a) {
     var body = String(a.body == null ? '' : a.body);
     return {
+      folder: a.folder ? String(a.folder) : '',
       title: String(a.title == null ? '' : a.title),
       body: body,
       chars: (typeof a.chars === 'number') ? a.chars : countChars(body),
@@ -640,6 +647,7 @@ function b64decodeUtf8(b64) {
       log('완료 — 사진 ' + moved + '장을 발행 폴더 ' + labels[0] + '~'
           + labels[labels.length - 1] + '에 나눴습니다.');
       $('photos').value = sets.map(function (s) { return s.before.length + s.after.length; }).join(',');
+      if (!$('folder').value.trim()) $('folder').value = company.name;
       $('tn').value = n;
       if (!$('company').value.trim()) $('company').value = company.name;
       $('photoHint').textContent = '배분 결과가 반영됐습니다: ' + $('photos').value;
@@ -748,7 +756,8 @@ function b64decodeUtf8(b64) {
       box.appendChild(h);
       var meta = document.createElement('p');
       meta.className = 'meta';
-      meta.textContent = '공백 제외 ' + a.chars + '자 · 사진 마커 ' + a.markers + '개';
+      meta.textContent = '공백 제외 ' + a.chars + '자 · 사진 마커 ' + a.markers + '개'
+        + (a.folder ? ' · 발행/' + a.folder : '');
       box.appendChild(meta);
       var row = document.createElement('div');
       row.className = 'row';
@@ -770,7 +779,8 @@ function b64decodeUtf8(b64) {
     if (polling) { clearInterval(polling); polling = null; }
 
     var r = buildRequest({
-      company: $('company').value, guide: $('guide').value, n: $('tn').value,
+      company: $('company').value, folder: $('folder').value,
+      guide: $('guide').value, n: $('tn').value,
       minChars: $('minChars').value, photos: $('photos').value,
       keywords: $('keywords').value, notes: $('notes').value
     }, new Date());
@@ -783,6 +793,9 @@ function b64decodeUtf8(b64) {
     try {
       await ghPut(token, r.path, r.json, '원고 요청 ' + r.id);
       log2('요청을 올렸습니다: ' + r.id);
+      if ($('folder').value.trim()) {
+        log2('사진 연동: 기자단알바\\' + $('folder').value.trim() + ' 의 발행 폴더 사진을 보고 씁니다.');
+      }
       log2('PC 브릿지가 켜져 있어야 원고가 만들어집니다. 15초마다 결과를 확인합니다…');
     } catch (err) {
       log2('요청 실패: ' + err.message);
