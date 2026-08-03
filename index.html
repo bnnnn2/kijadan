@@ -88,6 +88,7 @@
   <div class="tabs" role="tablist">
     <button id="tab-photo" role="tab" aria-selected="true" aria-controls="pane-photo">사진 배분</button>
     <button id="tab-text" role="tab" aria-selected="false" aria-controls="pane-text">원고 생성</button>
+    <button id="tab-marina" role="tab" aria-selected="false" aria-controls="pane-marina">마리나페이</button>
   </div>
 
   <div id="pane-photo" class="pane" role="tabpanel">
@@ -195,6 +196,33 @@
       </div>
     </section>
   </div><!-- /pane-text -->
+
+  <div id="pane-marina" class="pane" role="tabpanel" hidden>
+    <section style="border-top:none;padding-top:22px">
+      <h2><span class="no">1</span>키워드 고르기</h2>
+      <p class="hint">고른 키워드 개수만큼 글이 만들어집니다. 글 1편 = 키워드 1개.
+        가이드(2,500자·문체·구성)는 고정이라 따로 넣지 않으셔도 됩니다.</p>
+      <div id="kwBox"></div>
+      <p class="hint" id="recent">최근 사용한 키워드를 불러오려면 아래 [원고 요청] 화면의 토큰이 필요합니다.</p>
+    </section>
+
+    <section>
+      <h2><span class="no">2</span>사진</h2>
+      <label><input type="checkbox" id="mPhoto" checked> 발행 폴더 사진 연동</label>
+      <p class="hint">체크하면 브릿지 PC의 <b>기자단알바\마리나페이\발행\</b> 에서
+        원고.txt 가 없는 폴더를 앞에서부터 키워드와 짝지어, 사진을 열어 보고 씁니다.
+        해당 폴더가 없으면 사진 없이 글만 만듭니다.</p>
+    </section>
+
+    <section>
+      <h2><span class="no">3</span>요청</h2>
+      <button id="mReq" class="primary">원고 요청</button>
+      <p class="hint">깃허브 토큰은 [원고 생성] 탭에서 한 번 저장해 두면 여기서도 그대로 씁니다.
+        <b>PC 브릿지가 켜져 있어야</b> 원고가 만들어집니다.</p>
+      <div id="mLog" role="log" aria-live="polite"></div>
+      <div id="mOut"></div>
+    </section>
+  </div><!-- /pane-marina -->
 
   <footer>
     사진은 이 컴퓨터에만 있습니다. 원고는 대표님 PC의 클로드가 만듭니다.<br>
@@ -415,6 +443,8 @@ function parseResult(obj) {      // 결과 JSON → 화면에 쓸 모양으로 �
     var body = String(a.body == null ? '' : a.body);
     return {
       folder: a.folder ? String(a.folder) : '',
+      keyword: a.keyword ? String(a.keyword) : '',
+      chars_all: (typeof a.chars_all === 'number') ? a.chars_all : body.replace(/\n/g, '').length,
       title: String(a.title == null ? '' : a.title),
       body: body,
       chars: (typeof a.chars === 'number') ? a.chars : countChars(body),
@@ -423,6 +453,53 @@ function parseResult(obj) {      // 결과 JSON → 화면에 쓸 모양으로 �
     };
   });
   return { error: '', articles: arts, warnings: o.warnings || [] };
+}
+
+var MARINA_GROUPS = [
+  { name: 'A 기본·포괄형', keywords: ['카드단말기', '신용카드단말기', '카드결제기'] },
+  { name: 'B PG·온라인형', keywords: ['pg단말기', 'pg카드단말기'] },
+  { name: 'C 무선·이동형', keywords: ['무선카드단말기'] },
+  { name: 'D 추천·비교형', keywords: ['카드단말기추천', 'pg단말기추천', '무선카드단말기추천'] },
+  { name: 'E 수수료·비용형', keywords: ['카드단말기수수료'] },
+  { name: 'F 교체형', keywords: ['카드결제기교체'] },
+  { name: 'G 브랜드형(토스)', keywords: ['토스 단말기', '토스 단말기 수수료'] }
+];
+
+function buildMarinaRequest(form, now) {
+  var kws = (form.keywords || []).filter(function (k) { return String(k).trim(); });
+  var d = now || new Date();
+  var id = reqId(d);
+  var body = {
+    id: id,
+    type: 'marinapay',
+    created_at: d.toISOString(),
+    company: '마리나페이',
+    folder: '마리나페이',
+    keywords_list: kws,
+    n: kws.length,
+    photo_link: !!form.photoLink,
+    notes: (form.notes || '').trim()
+  };
+  return { id: id, path: 'queue/' + id + '.json', json: JSON.stringify(body, null, 1), count: kws.length };
+}
+
+function recentKeywords(results) {
+  // 결과 JSON 목록 → [{kw, date}] (최근순, 키워드별 1개)
+  var seen = {}, out = [];
+  (results || []).slice().sort(function (a, b) {
+    return String((b && b.done_at) || '').localeCompare(String((a && a.done_at) || ''));
+  }).forEach(function (r) {
+    var kws = (r && r.keywords_used) || [];
+    if (!kws.length && r && r.articles) {
+      kws = r.articles.map(function (a) { return a.keyword; }).filter(Boolean);
+    }
+    kws.forEach(function (k) {
+      if (seen[k]) return;
+      seen[k] = true;
+      out.push({ kw: k, date: String((r && r.done_at) || '').slice(5, 10).replace('-', '/') });
+    });
+  });
+  return out;
 }
 
 function b64encodeUtf8(str) {
@@ -785,14 +862,15 @@ function b64decodeUtf8(b64) {
 
   // ─────────── 탭 ───────────
   function showTab(which) {
-    var photo = which === 'photo';
-    $('tab-photo').setAttribute('aria-selected', photo ? 'true' : 'false');
-    $('tab-text').setAttribute('aria-selected', photo ? 'false' : 'true');
-    $('pane-photo').hidden = !photo;
-    $('pane-text').hidden = photo;
+    ['photo', 'text', 'marina'].forEach(function (k) {
+      var on = which === k;
+      $('tab-' + k).setAttribute('aria-selected', on ? 'true' : 'false');
+      $('pane-' + k).hidden = !on;
+    });
   }
   $('tab-photo').addEventListener('click', function () { showTab('photo'); });
   $('tab-text').addEventListener('click', function () { showTab('text'); });
+  $('tab-marina').addEventListener('click', function () { showTab('marina'); loadRecent(); });
 
   // ─────────── 토큰 ───────────
   var TOK = 'kijadan_gh_token';
@@ -949,6 +1027,136 @@ function b64decodeUtf8(b64) {
       }
     }, 15000);
   });
+
+  // ─────────── 마리나페이 ───────────
+  var mArticles = [], mPolling = null, recentMap = {};
+  function mLog(s) { $('mLog').textContent += s + '\n'; $('mLog').scrollTop = $('mLog').scrollHeight; }
+
+  function renderKeywords() {
+    var box = $('kwBox');
+    box.innerHTML = '';
+    MARINA_GROUPS.forEach(function (g) {
+      var fs = document.createElement('fieldset');
+      var lg = document.createElement('legend');
+      lg.textContent = g.name;
+      fs.appendChild(lg);
+      g.keywords.forEach(function (k) {
+        var lb = document.createElement('label');
+        lb.style.marginRight = '16px';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = k;
+        cb.className = 'mkw';
+        lb.appendChild(cb);
+        lb.appendChild(document.createTextNode(' ' + k + (recentMap[k] ? ' (' + recentMap[k] + ' 사용함)' : '')));
+        if (recentMap[k]) lb.style.color = 'var(--muted)';
+        fs.appendChild(lb);
+      });
+      box.appendChild(fs);
+    });
+  }
+
+  async function loadRecent() {
+    if (!Object.keys(recentMap).length) renderKeywords();
+    var token = $('ghtoken').value.trim();
+    if (!token) return;
+    try {
+      var res = await fetch('https://api.github.com/repos/' + BRIDGE_REPO + '/contents/results?t=' + Date.now(),
+        { headers: ghHeaders(token), cache: 'no-store' });
+      if (!res.ok) return;
+      var list = (await res.json()).filter(function (f) { return /\.json$/.test(f.name); });
+      list.sort(function (a, b) { return b.name.localeCompare(a.name); });
+      var picks = list.slice(0, 12), got = [];
+      for (var i = 0; i < picks.length; i++) {
+        try { got.push(await ghGetJson(token, 'results/' + picks[i].name)); } catch (err) {}
+      }
+      var recent = recentKeywords(got.filter(Boolean));
+      recentMap = {};
+      recent.forEach(function (r) { recentMap[r.kw] = r.date; });
+      $('recent').textContent = recent.length
+        ? '최근 사용: ' + recent.slice(0, 10).map(function (r) { return r.kw + '(' + r.date + ')'; }).join(', ')
+        : '최근 사용한 키워드가 없습니다.';
+      renderKeywords();
+    } catch (err) { /* 목록을 못 받아도 요청은 가능 */ }
+  }
+
+  function renderMarina() {
+    var out = $('mOut');
+    out.innerHTML = '';
+    mArticles.forEach(function (a, i) {
+      var box = document.createElement('div');
+      box.className = 'art';
+      var h = document.createElement('h3');
+      h.textContent = (a.keyword || (i + 1) + '편') + ' · ' + (a.title || '(제목 없음)');
+      box.appendChild(h);
+      var meta = document.createElement('p');
+      meta.className = 'meta';
+      meta.textContent = '공백 포함 ' + (a.chars_all || 0) + '자 · 공백 제외 ' + a.chars + '자 · 마커 '
+        + a.markers + '개' + (a.folder ? ' · 발행/' + a.folder : '');
+      box.appendChild(meta);
+      var row = document.createElement('div');
+      row.className = 'row';
+      row.appendChild(copyBtn('제목 복사', function () { return a.title; }));
+      row.appendChild(copyBtn('본문 복사', function () { return a.body; }));
+      box.appendChild(row);
+      var pre = document.createElement('pre');
+      pre.textContent = a.body;
+      box.appendChild(pre);
+      out.appendChild(box);
+    });
+  }
+
+  $('mReq').addEventListener('click', async function () {
+    var token = $('ghtoken').value.trim();
+    if (!token) { $('mLog').textContent = ''; mLog('[원고 생성] 탭에서 깃허브 토큰을 먼저 저장해 주세요.'); return; }
+    var picked = Array.prototype.map.call(document.querySelectorAll('.mkw:checked'),
+      function (c) { return c.value; });
+    if (!picked.length) { $('mLog').textContent = ''; mLog('키워드를 하나 이상 골라 주세요.'); return; }
+    if (mPolling) { clearInterval(mPolling); mPolling = null; }
+
+    var r = buildMarinaRequest({ keywords: picked, photoLink: $('mPhoto').checked }, new Date());
+    $('mLog').textContent = '';
+    $('mOut').innerHTML = '';
+    mArticles = [];
+    $('mReq').disabled = true;
+    try {
+      await ghPut(token, r.path, r.json, '마리나페이 원고 요청 ' + r.id);
+      mLog('요청을 올렸습니다: ' + r.id + ' (키워드 ' + r.count + '개)');
+      mLog(picked.join(', '));
+      mLog('PC 브릿지가 켜져 있어야 원고가 만들어집니다. 15초마다 결과를 확인합니다…');
+      mLog('키워드 1개당 2,500자라 몇 분 걸립니다.');
+    } catch (err) {
+      mLog('요청 실패: ' + err.message);
+      $('mReq').disabled = false;
+      return;
+    }
+
+    var tries = 0;
+    mPolling = setInterval(async function () {
+      tries++;
+      try {
+        var got = await ghGetJson(token, 'results/' + r.id + '.json');
+        if (!got) {
+          if (tries % 4 === 0) mLog('아직 기다리는 중… (' + (tries * 15) + '초)');
+          if (tries > 160) { clearInterval(mPolling); mPolling = null; mLog('40분이 지나 확인을 멈춥니다.'); $('mReq').disabled = false; }
+          return;
+        }
+        clearInterval(mPolling); mPolling = null;
+        var res = parseResult(got);
+        if (res.error) { mLog('브릿지 오류: ' + res.error); $('mReq').disabled = false; return; }
+        mArticles = res.articles;
+        renderMarina();
+        mLog('');
+        mLog('원고 ' + mArticles.length + '편 도착.');
+        res.warnings.forEach(function (w) { mLog('  ⚠ ' + w); });
+        mLog('발행 시 대가성 표시(광고·협찬 문구)를 꼭 넣어 주세요.');
+        $('mReq').disabled = false;
+        loadRecent();
+      } catch (err) { mLog('확인 중 오류: ' + err.message); }
+    }, 15000);
+  });
+
+  renderKeywords();
 
   $('saveText').addEventListener('click', async function () {
     if (!company || !articles.length) return;
