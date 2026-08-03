@@ -110,6 +110,10 @@
       <label><input type="radio" name="mode" value="A" checked> 일반 배분</label>
       <label><input type="radio" name="mode" value="B"> 전 / 후 배분</label>
     </div>
+    <div class="row modes" style="margin-top:10px">
+      <label><input type="radio" name="use" value="count" checked> 장수 지정</label>
+      <label><input type="radio" name="use" value="whole"> 전체 사용 (남은 사진 전부)</label>
+    </div>
 
     <div class="row" style="margin-top:14px">
       <label>발행 글 수 <input id="n" type="number" min="1" max="99" value="5"></label>
@@ -121,6 +125,7 @@
     </div>
     <p class="hint" id="hintA">글당 사진 최소 장수(실제로는 +1~3장 변주). 글마다 장수가 똑같으면 티가 나기 때문입니다.</p>
     <p class="hint hidden" id="hintB">전·후 각각 최소 장수(실제로는 +0~2장 변주). 각 글 폴더에서 번호는 전 사진이 먼저, 이어서 후 사진입니다. 위 폴더 목록에서 전/후를 지정하세요.</p>
+    <p class="hint hidden" id="hintWhole">남은 사진을 전부 씁니다. 장수 입력 없이 이름순 그대로 글 수만큼 연속 구간으로 나눕니다(나머지는 앞 글부터 한 장씩).</p>
     <p class="hint" id="need"></p>
   </section>
 
@@ -248,6 +253,32 @@ function planBeforeAfter(beforePools, afterPools, beforeSizes, afterSizes) {
   return out;
 }
 
+function splitSizes(total, n) {   // 20장·3글 → [7,7,6] (나머지는 앞 글부터)
+  if (n < 1) throw new Error('글 수는 1 이상이어야 합니다');
+  var base = Math.floor(total / n), extra = total % n, out = [];
+  for (var i = 0; i < n; i++) out.push(base + (i < extra ? 1 : 0));
+  return out;
+}
+
+function splitAll(pools, n, what) {   // 전량을 이름순 그대로 연속 구간으로 등분
+  var label = what ? what + ' ' : '';
+  if (!pools.length) throw new Error(label + '사진 폴더가 없습니다');
+  var all = [];
+  for (var i = 0; i < pools.length; i++) all = all.concat(pools[i]);   // 폴더 이름순 → 파일 이름순
+  if (n > all.length) {
+    throw new Error(label + '사진이 ' + all.length + '장뿐이라 글 ' + n + '편에 한 장씩도 못 넣습니다');
+  }
+  var sizes = splitSizes(all.length, n), out = [], pos = 0;
+  for (var k = 0; k < n; k++) { out.push(all.slice(pos, pos + sizes[k])); pos += sizes[k]; }
+  return out;
+}
+
+function splitAllBeforeAfter(beforePools, afterPools, n) {
+  var b = splitAll(beforePools, n, '전'), a = splitAll(afterPools, n, '후'), out = [];
+  for (var i = 0; i < b.length; i++) out.push({ before: b[i], after: a[i] });
+  return out;
+}
+
 function nextIndex(names) {     // 기존 발행 폴더 다음 번호
   var nums = names.filter(function (s) { return /^\d+$/.test(s); }).map(Number);
   return nums.length ? Math.max.apply(null, nums) + 1 : 1;
@@ -357,6 +388,13 @@ function b64decodeUtf8(b64) {
     return r ? r.value : 'A';
   }
   function num(id) { return parseInt($(id).value, 10); }
+  function usage() {
+    var r = document.querySelector('input[name=use]:checked');
+    return r ? r.value : 'count';
+  }
+  function totalOf(pools) {
+    return pools.reduce(function (a, p) { return a + p.length; }, 0);
+  }
 
   function poolsByRole(role) {
     return folders.filter(function (f) { return f.role === role; })
@@ -397,6 +435,20 @@ function b64decodeUtf8(b64) {
     var n = num('n');
     if (!(n > 0)) { $('need').textContent = ''; return; }
     var txt;
+    if (usage() === 'whole') {
+      if (!company) { $('need').textContent = '폴더를 선택하면 몇 장씩 나뉘는지 보여줍니다.'; return; }
+      if (mode() === 'A') {
+        var tot = totalOf(folders.map(function (f) { return f.files; }));
+        txt = tot < n ? '사진 ' + tot + '장 — 글 ' + n + '편에 한 장씩도 못 넣습니다'
+                      : '남은 ' + tot + '장 전부 → ' + countsText(splitSizes(tot, n)) + '장';
+      } else {
+        var tb = totalOf(poolsByRole('before')), ta = totalOf(poolsByRole('after'));
+        txt = '전 ' + tb + '장 → ' + (tb < n ? '부족' : countsText(splitSizes(tb, n)))
+            + ' / 후 ' + ta + '장 → ' + (ta < n ? '부족' : countsText(splitSizes(ta, n))) + '장';
+      }
+      $('need').textContent = txt;
+      return;
+    }
     if (mode() === 'A') {
       var c = sizesFor(n, num('m'));
       txt = '실제 배분: ' + countsText(c) + '장 — 모두 '
@@ -420,11 +472,12 @@ function b64decodeUtf8(b64) {
   }
 
   function syncMode() {
-    var b = mode() === 'B';
-    $('wrapA').classList.toggle('hidden', b);
-    $('wrapB').classList.toggle('hidden', !b);
-    $('hintA').classList.toggle('hidden', b);
-    $('hintB').classList.toggle('hidden', !b);
+    var b = mode() === 'B', whole = usage() === 'whole';
+    $('wrapA').classList.toggle('hidden', b || whole);
+    $('wrapB').classList.toggle('hidden', !b || whole);
+    $('hintA').classList.toggle('hidden', b || whole);
+    $('hintB').classList.toggle('hidden', !b || whole);
+    $('hintWhole').classList.toggle('hidden', !whole);
     $('run').disabled = busy || !company || folders.length === 0;
     renderFolders();
   }
@@ -468,9 +521,8 @@ function b64decodeUtf8(b64) {
   ['n', 'm', 'mb', 'ma'].forEach(function (id) {
     $(id).addEventListener('input', showNeed);
   });
-  Array.prototype.forEach.call(document.querySelectorAll('input[name=mode]'), function (r) {
-    r.addEventListener('change', syncMode);
-  });
+  Array.prototype.forEach.call(document.querySelectorAll('input[name=mode], input[name=use]'),
+    function (r) { r.addEventListener('change', syncMode); });
 
   async function moveOne(sub, item, no, records, tag) {
     var file = await item.handle.getFile();
@@ -496,7 +548,27 @@ function b64decodeUtf8(b64) {
     clearLog();
     var sets, headBits;
     try {
-      if (!b) {
+      if (usage() === 'whole') {
+        if (!b) {
+          var poolsW = folders.map(function (f) { return f.files; });
+          log(company.name + ' — 일반 배분(전체 사용), 글 ' + n + '편, 남은 ' + totalOf(poolsW) + '장 전부');
+          log('');
+          folders.forEach(function (f) { log('  ' + f.name + ' — ' + f.files.length + '장'); });
+          sets = splitAll(poolsW, n).map(function (s) { return { before: s, after: [] }; });
+          headBits = '일반 배분(전체 사용) → ' + sets.map(function (s) { return s.before.length; }).join('·') + '장';
+        } else {
+          log(company.name + ' — 전/후 배분(전체 사용), 글 ' + n + '편, 전 '
+              + totalOf(poolsByRole('before')) + '장 / 후 ' + totalOf(poolsByRole('after')) + '장 전부');
+          log('');
+          folders.forEach(function (f) {
+            var r0 = f.role === 'before' ? '전' : f.role === 'after' ? '후' : '사용 안 함';
+            log('  ' + f.name + ' [' + r0 + '] — ' + f.files.length + '장');
+          });
+          sets = splitAllBeforeAfter(poolsByRole('before'), poolsByRole('after'), n);
+          headBits = '전/후 배분(전체 사용) → 전 ' + sets.map(function (s) { return s.before.length; }).join('·')
+                   + ' / 후 ' + sets.map(function (s) { return s.after.length; }).join('·') + '장';
+        }
+      } else if (!b) {
         var counts = sizesFor(n, num('m'));
         log(company.name + ' — 일반 배분, 글 ' + n + '편, 최소 ' + num('m') + '장 → 실제 '
             + countsText(counts) + '장 (총 ' + counts.reduce(function (x, y) { return x + y; }, 0) + '장)');
