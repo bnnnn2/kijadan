@@ -212,11 +212,13 @@
         <button id="mPick">사진 폴더 선택</button>
         <span class="hint" id="mPicked">선택 안 함 — 기존 발행 폴더를 그대로 씁니다.</span>
       </div>
-      <p class="hint">그날 사진을 모아둔 <b>마리나페이 업체 폴더</b>를 고르면, 요청할 때
-        고른 키워드 수만큼 <b>발행\{다음 번호}</b> 폴더를 만들어 사진을 이름순으로 나눠 담고 바로 요청합니다.
+      <p class="hint">그날 사진을 모아둔 <b>마리나페이 업체 폴더</b>(또는 날짜 폴더가 들어 있는 상위 폴더)를 고르면,
+        요청할 때 고른 키워드 수만큼 <b>발행\{다음 번호}</b> 폴더를 만들어 사진을 이름순으로 나눠 담고 바로 요청합니다.
+        업체 폴더 안에 <b>08.04</b> 같은 날짜 폴더가 있으면 <b>이름순 가장 최신 날짜 폴더의 발행</b>에 넣습니다.
         동영상 파일은 사진 번호에서 빼고 글마다 하나씩 <b>동영상.mp4</b> 로 넣습니다.</p>
       <label><input type="checkbox" id="mPhoto" checked> 발행 폴더 사진 연동</label>
-      <p class="hint">체크하면 브릿지 PC의 <b>기자단알바\마리나페이\발행\</b> 에서
+      <p class="hint">체크하면 브릿지 PC의 <b>기자단알바\마리나페이\발행\</b>
+        (날짜 폴더를 쓰면 <b>가장 최신 날짜 폴더의 발행</b>) 에서
         원고.txt 가 없는 폴더를 앞에서부터 키워드와 짝지어, 사진을 열어 보고 씁니다.
         해당 폴더가 없으면 사진 없이 글만 만듭니다.</p>
     </section>
@@ -1198,9 +1200,24 @@ function b64decodeUtf8(b64) {
     $('mPhoto').checked = true;
   });
 
+  async function publishParent() {
+    // 발행 폴더 위치: {업체}/발행 이 있으면 거기, 없으면 이름순 최신 날짜 폴더 아래
+    var hasDirect = false, dirs = [];
+    for await (var e of mDir.entries()) {
+      if (e[1].kind !== 'directory') continue;
+      if (e[0] === '발행') hasDirect = true;
+      else if (!/^_/.test(e[0])) dirs.push({ name: e[0], handle: e[1] });
+    }
+    if (hasDirect || !dirs.length) return mDir;
+    dirs.sort(function (a, b) { return cmp(a.name, b.name); });
+    return dirs[dirs.length - 1].handle;      // 이름순 최신 날짜 폴더
+  }
+
   async function mDistribute(n) {
     // 선택한 폴더의 사진을 발행/{다음 번호} 폴더 n개로 등분 배분
-    var out = await mDir.getDirectoryHandle('발행', { create: true });
+    var parent = await publishParent();
+    if (parent !== mDir) mLog('  발행 위치: ' + parent.name + '/발행');
+    var out = await parent.getDirectoryHandle('발행', { create: true });
     var names = [];
     for await (var e of out.entries()) if (e[1].kind === 'directory') names.push(e[0]);
     var start = nextIndex(names);
