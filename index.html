@@ -208,6 +208,13 @@
 
     <section>
       <h2><span class="no">2</span>사진</h2>
+      <div class="row">
+        <button id="mPick">사진 폴더 선택</button>
+        <span class="hint" id="mPicked">선택 안 함 — 기존 발행 폴더를 그대로 씁니다.</span>
+      </div>
+      <p class="hint">그날 사진을 모아둔 <b>마리나페이 업체 폴더</b>를 고르면, 요청할 때
+        고른 키워드 수만큼 <b>발행\{다음 번호}</b> 폴더를 만들어 사진을 이름순으로 나눠 담고 바로 요청합니다.
+        동영상 파일은 사진 번호에서 빼고 글마다 하나씩 <b>동영상.mp4</b> 로 넣습니다.</p>
       <label><input type="checkbox" id="mPhoto" checked> 발행 폴더 사진 연동</label>
       <p class="hint">체크하면 브릿지 PC의 <b>기자단알바\마리나페이\발행\</b> 에서
         원고.txt 가 없는 폴더를 앞에서부터 키워드와 짝지어, 사진을 열어 보고 씁니다.
@@ -237,11 +244,33 @@
 var IMG_EXT = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic'];
 var ROOT_LABEL = '(업체 폴더 바로 아래)';   // 하위 폴더 없이 루트에 사진이 있는 경우
 
+var VIDEO_EXT = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
+
+function isVideo(name) {
+  var i = String(name).lastIndexOf('.');
+  var ext = i > 0 ? String(name).slice(i).toLowerCase() : '';
+  return VIDEO_EXT.indexOf(ext) !== -1 || /^동영상/.test(String(name));
+}
+
+function assignVideos(videos, n) {
+  // 글당 1개씩 라운드로빈. 부족하면 앞 글부터 채워진다.
+  var out = [];
+  for (var i = 0; i < n; i++) out.push([]);
+  (videos || []).forEach(function (v, i) { if (n > 0) out[i % n].push(v); });
+  return out;
+}
+
+function videoName(idx, total, orig) {
+  var ext = extOf(orig) || '.mp4';
+  return (total > 1 ? '동영상' + (idx + 1) : '동영상') + ext;
+}
+
 function cmp(a, b) {            // 파이썬 sorted() 와 같은 코드포인트 순서 (localeCompare 금지)
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function isImage(name) {
+  if (isVideo(name)) return false;           // 동영상은 사진 번호에서 제외
   var i = name.lastIndexOf('.');
   return i > 0 && IMG_EXT.indexOf(name.slice(i).toLowerCase()) !== -1;
 }
@@ -529,7 +558,7 @@ function b64decodeUtf8(b64) {
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var supported = typeof window.showDirectoryPicker === 'function';
-  var company = null, folders = [], busy = false;
+  var company = null, folders = [], videos = [], busy = false;
 
   if (!supported) {
     $('unsupported').classList.remove('hidden');
@@ -654,11 +683,14 @@ function b64decodeUtf8(b64) {
     folders.forEach(function (f) { prev[f.name] = f.role; });
     folders = [];
     var rootNames = [];
+    videos = [];
     for await (var e of company.entries()) {
       if (e[1].kind === 'directory' && e[0] !== '발행') {
         folders.push({ name: e[0], handle: e[1], files: [], role: prev[e[0]] || 'skip' });
       } else if (e[1].kind === 'file' && isImage(e[0])) {
         rootNames.push({ name: e[0], handle: e[1] });   // 업체 폴더 루트 직속 사진
+      } else if (e[1].kind === 'file' && isVideo(e[0])) {
+        videos.push({ name: e[0], handle: e[1], dirHandle: company, dirName: '(업체 폴더 바로 아래)' });
       }
     }
     folders.sort(function (x, y) { return cmp(x.name, y.name); });
@@ -676,6 +708,8 @@ function b64decodeUtf8(b64) {
       for await (var f of folders[i].handle.entries()) {
         if (f[1].kind === 'file' && isImage(f[0])) {
           files.push({ name: f[0], handle: f[1], dir: folders[i] });
+        } else if (f[1].kind === 'file' && isVideo(f[0])) {
+          videos.push({ name: f[0], handle: f[1], dirHandle: folders[i].handle, dirName: folders[i].name });
         }
       }
       files.sort(function (x, y) { return cmp(x.name, y.name); });
@@ -703,6 +737,25 @@ function b64decodeUtf8(b64) {
   Array.prototype.forEach.call(document.querySelectorAll('input[name=mode], input[name=use]'),
     function (r) { r.addEventListener('change', syncMode); });
   $('dup').addEventListener('change', showNeed);
+
+  async function placeVideos(subDir, vids, records, keep) {
+    for (var i = 0; i < vids.length; i++) {
+      var v = vids[i];
+      var file = await v.handle.getFile();
+      var dstName = videoName(i, vids.length, v.name);
+      var dst = await subDir.getFileHandle(dstName, { create: true });
+      var w = await dst.createWritable();
+      await w.write(file);
+      await w.close();
+      var check = await (await subDir.getFileHandle(dstName)).getFile();
+      if (check.size !== file.size || file.size === 0) {
+        throw new Error(v.name + ' 복사 검증 실패 — 원본은 그대로 두었습니다');
+      }
+      if (!keep) await v.dirHandle.removeEntry(v.name);
+      records.push(v.dirName + '/' + v.name + '\t' + (keep ? '=>' : '->') + '\t발행/'
+                   + subDir.name + '/' + dstName + '  [동영상]');
+    }
+  }
 
   async function moveOne(sub, item, no, records, tag, keep) {
     var file = await item.handle.getFile();
@@ -790,6 +843,8 @@ function b64decodeUtf8(b64) {
       for await (var e of out.entries()) if (e[1].kind === 'directory') names.push(e[0]);
       var start = nextIndex(names);
       var records = [], moved = 0, labels = [];
+      var vidSets = assignVideos(videos, sets.length);
+      if (videos.length) log('  동영상 ' + videos.length + '개 포함 — 글당 1개씩 나눠 넣습니다');
 
       for (var k = 0; k < sets.length; k++) {
         var label = pad2(start + k);
@@ -804,8 +859,11 @@ function b64decodeUtf8(b64) {
           await moveOne(sub, sets[k].after[j], no++, records, '후', keep);
           moved++;
         }
+        var vids = vidSets[k] || [];
+        if (vids.length) await placeVideos(sub, vids, records, keep);
         log('  ' + label + ' 폴더 — 사진 ' + (no - 1) + '장'
-            + (b ? ' (전 ' + sets[k].before.length + ' + 후 ' + sets[k].after.length + ')' : ''));
+            + (b ? ' (전 ' + sets[k].before.length + ' + 후 ' + sets[k].after.length + ')' : '')
+            + (vids.length ? ' · 동영상 ' + vids.length + '개' : ''));
       }
 
       var d = new Date(), p = function (v) { return (v < 10 ? '0' : '') + v; };
@@ -1106,6 +1164,74 @@ function b64decodeUtf8(b64) {
     });
   }
 
+  var mDir = null, mPools = [], mVideos = [];
+
+  async function mScan() {
+    mPools = []; mVideos = [];
+    var rootImgs = [], subs = [];
+    for await (var e of mDir.entries()) {
+      if (e[1].kind === 'directory' && e[0] !== '발행') subs.push({ name: e[0], handle: e[1] });
+      else if (e[1].kind === 'file' && isImage(e[0])) rootImgs.push({ name: e[0], handle: e[1], dirHandle: mDir, dirName: mDir.name });
+      else if (e[1].kind === 'file' && isVideo(e[0])) mVideos.push({ name: e[0], handle: e[1], dirHandle: mDir, dirName: mDir.name });
+    }
+    rootImgs.sort(function (x, y) { return cmp(x.name, y.name); });
+    if (rootImgs.length) mPools.push(rootImgs.map(function (f) { return { name: f.name, handle: f.handle, dir: { name: f.dirName, handle: mDir } }; }));
+    subs.sort(function (x, y) { return cmp(x.name, y.name); });
+    for (var i = 0; i < subs.length; i++) {
+      var imgs = [];
+      for await (var f of subs[i].handle.entries()) {
+        if (f[1].kind === 'file' && isImage(f[0])) imgs.push({ name: f[0], handle: f[1], dir: { name: subs[i].name, handle: subs[i].handle } });
+        else if (f[1].kind === 'file' && isVideo(f[0])) mVideos.push({ name: f[0], handle: f[1], dirHandle: subs[i].handle, dirName: subs[i].name });
+      }
+      imgs.sort(function (x, y) { return cmp(x.name, y.name); });
+      if (imgs.length) mPools.push(imgs);
+    }
+    mVideos.sort(function (x, y) { return cmp(x.name, y.name); });
+  }
+
+  $('mPick').addEventListener('click', async function () {
+    try { mDir = await window.showDirectoryPicker({ mode: 'readwrite' }); } catch (err) { return; }
+    await mScan();
+    var total = mPools.reduce(function (a, p) { return a + p.length; }, 0);
+    $('mPicked').textContent = mDir.name + ' — 사진 ' + total + '장'
+      + (mVideos.length ? ' · 동영상 ' + mVideos.length + '개' : '');
+    $('mPhoto').checked = true;
+  });
+
+  async function mDistribute(n) {
+    // 선택한 폴더의 사진을 발행/{다음 번호} 폴더 n개로 등분 배분
+    var out = await mDir.getDirectoryHandle('발행', { create: true });
+    var names = [];
+    for await (var e of out.entries()) if (e[1].kind === 'directory') names.push(e[0]);
+    var start = nextIndex(names);
+    var sets = mPools.length ? splitAll(mPools, n) : [];
+    var vidSets = assignVideos(mVideos, n);
+    var records = [], labels = [], moved = 0;
+    for (var k = 0; k < n; k++) {
+      var label = pad2(start + k);
+      labels.push(label);
+      var subDir = await out.getDirectoryHandle(label, { create: true });
+      var picked = sets[k] || [], no = 1;
+      for (var j = 0; j < picked.length; j++) { await moveOne(subDir, picked[j], no++, records, '', false); moved++; }
+      if (vidSets[k] && vidSets[k].length) await placeVideos(subDir, vidSets[k], records, false);
+      mLog('  ' + label + ' 폴더 — 사진 ' + picked.length + '장'
+           + (vidSets[k] && vidSets[k].length ? ' · 동영상 ' + vidSets[k].length + '개' : ''));
+    }
+    var d = new Date(), p = function (v) { return (v < 10 ? '0' : '') + v; };
+    var head = '[' + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' '
+      + p(d.getHours()) + ':' + p(d.getMinutes()) + '] ' + mDir.name
+      + ' — 마리나페이 키워드 ' + n + '개, 전체 사용 등분 (합계 ' + moved + '장'
+      + (mVideos.length ? ' + 동영상 ' + mVideos.length + '개' : '') + ', 폴더 '
+      + labels[0] + '~' + labels[labels.length - 1] + ')';
+    var old = '';
+    try { old = await (await (await out.getFileHandle('_배분기록.txt')).getFile()).text(); } catch (err) { old = '﻿'; }
+    var fh = await out.getFileHandle('_배분기록.txt', { create: true });
+    var fw = await fh.createWritable();
+    await fw.write(old + head + '\n' + records.join('\n') + '\n\n');
+    await fw.close();
+    return labels;
+  }
+
   $('mReq').addEventListener('click', async function () {
     var token = $('ghtoken').value.trim();
     if (!token) { $('mLog').textContent = ''; mLog('[원고 생성] 탭에서 깃허브 토큰을 먼저 저장해 주세요.'); return; }
@@ -1119,6 +1245,25 @@ function b64decodeUtf8(b64) {
     $('mOut').innerHTML = '';
     mArticles = [];
     $('mReq').disabled = true;
+
+    if (mDir && $('mPhoto').checked) {
+      try {
+        mLog('사진을 발행 폴더로 나눕니다… (키워드 ' + picked.length + '개)');
+        var made = await mDistribute(picked.length);
+        mLog('배분 완료 — 발행/' + made[0] + '~' + made[made.length - 1]);
+        mLog('');
+        await mScan();
+        var left = mPools.reduce(function (a, p) { return a + p.length; }, 0);
+        $('mPicked').textContent = mDir.name + ' — 사진 ' + left + '장'
+          + (mVideos.length ? ' · 동영상 ' + mVideos.length + '개' : '');
+      } catch (err) {
+        mLog('사진 배분 실패: ' + err.message);
+        mLog('사진 없이 요청만 올리려면 [발행 폴더 사진 연동] 체크를 끄고 다시 눌러 주세요.');
+        $('mReq').disabled = false;
+        return;
+      }
+    }
+
     try {
       await ghPut(token, r.path, r.json, '마리나페이 원고 요청 ' + r.id);
       mLog('요청을 올렸습니다: ' + r.id + ' (키워드 ' + r.count + '개)');
