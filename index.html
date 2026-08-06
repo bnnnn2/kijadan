@@ -42,6 +42,12 @@
   .folders select{font:inherit;padding:6px 8px;min-height:36px;border:1px solid var(--line);
     background:var(--card);color:inherit}
   .modes label{margin-right:18px}
+  .brands{display:flex;gap:12px;margin:0 0 6px}
+  .brands button{flex:0 0 auto;min-width:150px;padding:14px 24px;font-size:1.02rem;
+    border:1px solid var(--line);background:var(--card);color:var(--muted)}
+  .brands button[aria-pressed=true]{border:2px solid var(--ink);background:var(--ink);
+    color:var(--paper);font-weight:700}
+  .brands button:hover{background:var(--ink);color:var(--paper)}
   #log{margin-top:16px;background:var(--card);border:1px solid var(--line);
     padding:14px 16px;min-height:120px;max-height:44vh;overflow:auto;
     white-space:pre-wrap;font-size:.9rem}
@@ -199,7 +205,16 @@
 
   <div id="pane-marina" class="pane" role="tabpanel" hidden>
     <section style="border-top:none;padding-top:22px">
-      <h2><span class="no">1</span>키워드 고르기</h2>
+      <h2><span class="no">1</span>브랜드</h2>
+      <div class="brands" role="group" aria-label="브랜드 선택">
+        <button id="brandA" aria-pressed="true">마리나페이</button>
+        <button id="brandB" aria-pressed="false">서포트리</button>
+      </div>
+      <p class="hint" id="brandHint">가이드는 두 브랜드가 같습니다. 고른 브랜드 이름만 원고에 들어갑니다.</p>
+    </section>
+
+    <section>
+      <h2><span class="no">2</span>키워드 고르기</h2>
       <p class="hint">고른 키워드 개수만큼 글이 만들어집니다. 글 1편 = 키워드 1개.
         가이드(2,500자·문체·구성)는 고정이라 따로 넣지 않으셔도 됩니다.</p>
       <div id="kwBox"></div>
@@ -207,7 +222,7 @@
     </section>
 
     <section>
-      <h2><span class="no">2</span>사진</h2>
+      <h2><span class="no">3</span>사진</h2>
       <div class="row">
         <button id="mPick">사진 폴더 선택</button>
         <span class="hint" id="mPicked">선택 안 함 — 기존 발행 폴더를 그대로 씁니다.</span>
@@ -224,7 +239,7 @@
     </section>
 
     <section>
-      <h2><span class="no">3</span>요청</h2>
+      <h2><span class="no">4</span>요청</h2>
       <button id="mReq" class="primary">원고 요청</button>
       <p class="hint">깃허브 토큰은 [원고 생성] 탭에서 한 번 저장해 두면 여기서도 그대로 씁니다.
         <b>PC 브릿지가 켜져 있어야</b> 원고가 만들어집니다.</p>
@@ -496,16 +511,20 @@ var MARINA_GROUPS = [
   { name: 'G 브랜드형(토스)', keywords: ['토스 단말기', '토스 단말기 수수료'] }
 ];
 
+var MARINA_BRANDS = ['마리나페이', '서포트리'];
+
 function buildMarinaRequest(form, now) {
   var kws = (form.keywords || []).filter(function (k) { return String(k).trim(); });
   var d = now || new Date();
   var id = reqId(d);
+  var brand = MARINA_BRANDS.indexOf(form.brand) !== -1 ? form.brand : MARINA_BRANDS[0];
   var body = {
     id: id,
     type: 'marinapay',
     created_at: d.toISOString(),
-    company: '마리나페이',
-    folder: '마리나페이',
+    brand: brand,
+    company: brand,
+    folder: brand,
     keywords_list: kws,
     n: kws.length,
     photo_link: !!form.photoLink,
@@ -514,10 +533,14 @@ function buildMarinaRequest(form, now) {
   return { id: id, path: 'queue/' + id + '.json', json: JSON.stringify(body, null, 1), count: kws.length };
 }
 
-function recentKeywords(results) {
-  // 결과 JSON 목록 → [{kw, date}] (최근순, 키워드별 1개)
+function recentKeywords(results, brand) {
+  // 결과 JSON 목록 → [{kw, date}] (최근순, 키워드별 1개). brand 를 주면 그 브랜드 것만.
   var seen = {}, out = [];
-  (results || []).slice().sort(function (a, b) {
+  (results || []).filter(function (r) {
+    if (!brand) return true;
+    var b = (r && r.brand) || '마리나페이';   // 브랜드 기록 없는 옛 결과는 마리나페이로 본다
+    return b === brand;
+  }).slice().sort(function (a, b) {
     return String((b && b.done_at) || '').localeCompare(String((a && a.done_at) || ''));
   }).forEach(function (r) {
     var kws = (r && r.keywords_used) || [];
@@ -1089,7 +1112,7 @@ function b64decodeUtf8(b64) {
   });
 
   // ─────────── 마리나페이 ───────────
-  var mArticles = [], mPolling = null, recentMap = {};
+  var mArticles = [], mPolling = null, recentMap = {}, mBrand = MARINA_BRANDS[0], mResults = [];
   function mLog(s) { $('mLog').textContent += s + '\n'; $('mLog').scrollTop = $('mLog').scrollHeight; }
 
   function renderKeywords() {
@@ -1116,6 +1139,27 @@ function b64decodeUtf8(b64) {
     });
   }
 
+  function applyRecent() {
+    var recent = recentKeywords(mResults, mBrand);
+    recentMap = {};
+    recent.forEach(function (r) { recentMap[r.kw] = r.date; });
+    $('recent').textContent = recent.length
+      ? mBrand + ' 최근 사용: ' + recent.slice(0, 10).map(function (r) { return r.kw + '(' + r.date + ')'; }).join(', ')
+      : mBrand + ' 로 최근 쓴 키워드가 없습니다.';
+    renderKeywords();
+  }
+
+  function setBrand(b) {
+    mBrand = b;
+    $('brandA').setAttribute('aria-pressed', b === MARINA_BRANDS[0] ? 'true' : 'false');
+    $('brandB').setAttribute('aria-pressed', b === MARINA_BRANDS[1] ? 'true' : 'false');
+    $('brandHint').textContent = '선택: ' + b + ' — 가이드는 두 브랜드가 같고, 원고에 들어가는 이름만 바뀝니다.'
+      + ' 발행 폴더는 기자단알바\\' + b + ' (없으면 마리나페이 폴더 공용).';
+    applyRecent();
+  }
+  $('brandA').addEventListener('click', function () { setBrand(MARINA_BRANDS[0]); });
+  $('brandB').addEventListener('click', function () { setBrand(MARINA_BRANDS[1]); });
+
   async function loadRecent() {
     if (!Object.keys(recentMap).length) renderKeywords();
     var token = $('ghtoken').value.trim();
@@ -1130,13 +1174,8 @@ function b64decodeUtf8(b64) {
       for (var i = 0; i < picks.length; i++) {
         try { got.push(await ghGetJson(token, 'results/' + picks[i].name)); } catch (err) {}
       }
-      var recent = recentKeywords(got.filter(Boolean));
-      recentMap = {};
-      recent.forEach(function (r) { recentMap[r.kw] = r.date; });
-      $('recent').textContent = recent.length
-        ? '최근 사용: ' + recent.slice(0, 10).map(function (r) { return r.kw + '(' + r.date + ')'; }).join(', ')
-        : '최근 사용한 키워드가 없습니다.';
-      renderKeywords();
+      mResults = got.filter(Boolean);
+      applyRecent();
     } catch (err) { /* 목록을 못 받아도 요청은 가능 */ }
   }
 
@@ -1257,7 +1296,7 @@ function b64decodeUtf8(b64) {
     if (!picked.length) { $('mLog').textContent = ''; mLog('키워드를 하나 이상 골라 주세요.'); return; }
     if (mPolling) { clearInterval(mPolling); mPolling = null; }
 
-    var r = buildMarinaRequest({ keywords: picked, photoLink: $('mPhoto').checked }, new Date());
+    var r = buildMarinaRequest({ keywords: picked, photoLink: $('mPhoto').checked, brand: mBrand }, new Date());
     $('mLog').textContent = '';
     $('mOut').innerHTML = '';
     mArticles = [];
@@ -1283,7 +1322,7 @@ function b64decodeUtf8(b64) {
 
     try {
       await ghPut(token, r.path, r.json, '마리나페이 원고 요청 ' + r.id);
-      mLog('요청을 올렸습니다: ' + r.id + ' (키워드 ' + r.count + '개)');
+      mLog('요청을 올렸습니다: ' + r.id + ' — ' + mBrand + ' / 키워드 ' + r.count + '개');
       mLog(picked.join(', '));
       mLog('PC 브릿지가 켜져 있어야 원고가 만들어집니다. 15초마다 결과를 확인합니다…');
       mLog('키워드 1개당 2,500자라 몇 분 걸립니다.');
@@ -1318,7 +1357,7 @@ function b64decodeUtf8(b64) {
     }, 15000);
   });
 
-  renderKeywords();
+  setBrand(MARINA_BRANDS[0]);
 
   $('saveText').addEventListener('click', async function () {
     if (!company || !articles.length) return;
